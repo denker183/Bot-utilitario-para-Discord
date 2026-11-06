@@ -1,15 +1,16 @@
-# [Project name]
+# Bot utilitário para Discord
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Bot em Python com comandos slash para ajudar a consultar e configurar um servidor do Discord.
 
 ## Run & Operate
 
+- `python -m discord_bot.main` — run the Discord bot (requires `DISCORD_BOT_TOKEN`)
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required secrets: `DISCORD_BOT_TOKEN` — Discord bot token; `DATABASE_URL` is required only by the API/database packages.
 
 ## Stack
 
@@ -22,7 +23,10 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `discord_bot/` — Discord slash commands and per-server settings
+- `artifacts/api-server/` — shared API service
+- `lib/api-spec/openapi.yaml` — API contract source of truth
+- `lib/db/src/schema/` — database schema
 
 ## Architecture decisions
 
