@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 import discord
@@ -24,6 +26,16 @@ COLORS = [
     app_commands.Choice(name="Preto", value="0x000000"),
     app_commands.Choice(name="Branco", value="0xffffff"),
 ]
+
+REAIS_PER_ROBUX = Decimal("45") / Decimal("1000")
+
+
+def format_number_pt_br(value: Decimal, decimal_places: int) -> str:
+    """Format a number using Brazilian thousands and decimal separators."""
+    quantum = Decimal("1").scaleb(-decimal_places)
+    rounded = value.quantize(quantum, rounding=ROUND_HALF_UP)
+    formatted = f"{rounded:,.{decimal_places}f}"
+    return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 async def send_ephemeral(
@@ -73,7 +85,8 @@ async def ajuda(interaction: discord.Interaction) -> None:
         value=(
             "`/servidor` — mostra informações do servidor.\n"
             "`/regras` — exibe as regras configuradas.\n"
-            "`/ping` — verifica se o bot está respondendo."
+            "`/ping` — verifica se o bot está respondendo.\n"
+            "`/calcular` — converte pela taxa de 1.000 Robux = R$ 45,00."
         ),
         inline=False,
     )
@@ -95,6 +108,76 @@ async def ping(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(
         f"Pong! Latência: **{latency_ms} ms**.", ephemeral=True
     )
+
+
+@bot.tree.command(
+    name="calcular",
+    description="Converte Robux e Reais pela taxa de 1.000 = R$ 45,00.",
+)
+@app_commands.describe(
+    tipo="Escolha se deseja calcular a partir de Robux ou de Reais",
+    quantidade="A quantidade que você quer converter",
+)
+@app_commands.choices(
+    tipo=[
+        app_commands.Choice(
+            name="Robux para Reais (ex.: 1.000 → R$ 45,00)",
+            value="robux",
+        ),
+        app_commands.Choice(
+            name="Reais para Robux (ex.: R$ 45,00 → 1.000)",
+            value="reais",
+        ),
+    ]
+)
+@app_commands.guild_only()
+async def calcular(
+    interaction: discord.Interaction,
+    tipo: app_commands.Choice[str],
+    quantidade: float,
+) -> None:
+    if not math.isfinite(quantidade) or quantidade <= 0:
+        await send_ephemeral(
+            interaction, "Informe uma quantidade válida maior que zero."
+        )
+        return
+
+    amount = Decimal(str(quantidade))
+    if tipo.value == "robux":
+        if amount != amount.to_integral_value():
+            await send_ephemeral(
+                interaction, "Informe a quantidade de Robux como um número inteiro."
+            )
+            return
+
+        reais = (amount * REAIS_PER_ROBUX).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        description = (
+            f"**{format_number_pt_br(amount, 0)} Robux** equivalem a "
+            f"**R$ {format_number_pt_br(reais, 2)}**"
+        )
+        footer = "Taxa usada: 1.000 Robux = R$ 45,00"
+        color = discord.Color.green()
+    else:
+        reais = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        robux = (reais / REAIS_PER_ROBUX).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP
+        )
+        description = (
+            f"**R$ {format_number_pt_br(reais, 2)}** equivalem a "
+            f"**{format_number_pt_br(robux, 0)} Robux**"
+        )
+        footer = "Taxa usada: R$ 45,00 = 1.000 Robux"
+        color = discord.Color.blue()
+
+    embed = discord.Embed(
+        title="🧮 Calculadora de conversão",
+        description=description,
+        color=color,
+    )
+    embed.set_footer(text=footer)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name="servidor", description="Mostra informações deste servidor.")

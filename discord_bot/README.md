@@ -8,6 +8,7 @@ Secrets do projeto; ele não deve ser colocado nos arquivos do bot.
 - `/ajuda` — mostra a lista de comandos.
 - `/ping` — verifica se o bot está respondendo.
 - `/servidor` — mostra informações básicas do servidor.
+- `/calcular` — converte Robux e Reais pela taxa de 1.000 Robux = R$ 45,00; o resultado é privado.
 - `/regras` — publica as regras configuradas.
 - `/configurar_regras` — salva as regras; somente administradores.
 - `/embed` — publica uma embed com título, descrição e cor; somente administradores.
