@@ -10,6 +10,7 @@ from pathlib import Path
 
 import discord
 from discord import app_commands
+from discord.ext import commands
 
 from discord_bot.settings_store import GuildSettingsStore
 
@@ -48,18 +49,19 @@ async def send_ephemeral(
         await interaction.response.send_message(message, ephemeral=True)
 
 
-async def is_server_owner(interaction: discord.Interaction) -> bool:
-    """Allow a command only to the owner of its Discord server."""
+async def is_server_owner_message(ctx: commands.Context) -> bool:
+    """Allow the prefix command only to the owner of its Discord server."""
     return (
-        interaction.guild is not None
-        and interaction.user.id == interaction.guild.owner_id
+        ctx.guild is not None
+        and ctx.author.id == ctx.guild.owner_id
     )
 
 
-class ServerBot(discord.Client):
+class ServerBot(commands.Bot):
     def __init__(self) -> None:
-        super().__init__(intents=discord.Intents.default())
-        self.tree = app_commands.CommandTree(self)
+        intents = discord.Intents.default()
+        intents.message_content = True
+        super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self) -> None:
         guild_id = os.getenv("DISCORD_GUILD_ID")
@@ -99,10 +101,10 @@ async def ajuda(interaction: discord.Interaction) -> None:
         inline=False,
     )
     embed.add_field(
-        name="Somente administradores",
+        name="Comandos restritos",
         value=(
             "`/configurar_regras` — define as regras mostradas em `/regras`.\n"
-            "`/embed` — publica uma embed personalizada no canal."
+            "`!embed Título | Descrição | Cor` — publica uma embed; somente o dono do servidor."
         ),
         inline=False,
     )
@@ -257,28 +259,106 @@ async def regras(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(name="embed", description="Envia uma mensagem embed personalizada.")
-@app_commands.describe(
-    titulo="Título que aparecerá na embed",
-    descricao="Mensagem ou conteúdo da embed",
-    cor="Cor da borda da embed",
-)
-@app_commands.choices(cor=COLORS)
-@app_commands.guild_only()
-@app_commands.check(is_server_owner)
-async def embed_command(
-    interaction: discord.Interaction,
-    titulo: app_commands.Range[str, 1, 256],
-    descricao: app_commands.Range[str, 1, 4000],
-    cor: app_commands.Choice[str],
-) -> None:
-    color_value = int(cor.value, 16)
+async def delete_prefix_message(ctx: commands.Context) -> bool:
+    """Delete the command message so only the resulting embed stays in chat."""
+    try:
+        await ctx.message.delete()
+        return True
+    except discord.Forbidden:
+        try:
+            await ctx.author.send(
+                "Não consegui apagar a mensagem do comando. "
+                "Dê ao bot a permissão **Manage Messages** no canal."
+            )
+        except discord.HTTPException:
+            LOGGER.warning("Não foi possível avisar o usuário sobre Manage Messages.")
+        return False
+    except discord.HTTPException:
+        LOGGER.exception("Não foi possível apagar a mensagem do comando.")
+        return False
+
+
+async def send_direct_message(user: discord.abc.User, message: str) -> None:
+    try:
+        await user.send(message)
+    except discord.HTTPException:
+        LOGGER.info("Não foi possível enviar uma mensagem privada ao usuário %s.", user.id)
+
+
+@bot.command(name="embed", help="Publica uma embed: !embed Título | Descrição | Cor")
+@commands.guild_only()
+@commands.check(is_server_owner_message)
+async def embed_command(ctx: commands.Context, *, conteudo: str) -> None:
+    if not await delete_prefix_message(ctx):
+        return
+
+    parts = [part.strip() for part in conteudo.split("|", maxsplit=2)]
+    if len(parts) != 3 or not all(parts):
+        await send_direct_message(
+            ctx.author,
+            "Use: `!embed Título | Descrição | Cor`.\n"
+            "Cores disponíveis: Azul, Vermelho, Verde, Amarelo, Roxo, Preto ou Branco.",
+        )
+        return
+
+    titulo, descricao, cor_nome = parts
+    if len(titulo) > 256 or len(descricao) > 4000:
+        await send_direct_message(
+            ctx.author, "O título deve ter até 256 caracteres e a descrição até 4.000."
+        )
+        return
+
+    cor = next(
+        (choice for choice in COLORS if choice.name.casefold() == cor_nome.casefold()),
+        None,
+    )
+    if cor is None:
+        await send_direct_message(
+            ctx.author,
+            "Cor inválida. Use Azul, Vermelho, Verde, Amarelo, Roxo, Preto ou Branco.",
+        )
+        return
+
     message_embed = discord.Embed(
         title=titulo,
         description=descricao,
-        color=discord.Color(color_value),
+        color=discord.Color(int(cor.value, 16)),
     )
-    await interaction.response.send_message(embed=message_embed, ephemeral=False)
+    try:
+        await ctx.send(embed=message_embed)
+    except discord.Forbidden:
+        await send_direct_message(
+            ctx.author,
+            "Não consegui publicar o embed. Confira se o bot pode enviar mensagens "
+            "e incorporar links neste canal.",
+        )
+
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error: commands.CommandError) -> None:
+    if isinstance(error, commands.CommandNotFound):
+        return
+
+    if isinstance(error, commands.NoPrivateMessage):
+        return
+
+    if isinstance(error, commands.CheckFailure):
+        if ctx.guild is not None:
+            await delete_prefix_message(ctx)
+        return
+
+    if isinstance(error, commands.MissingRequiredArgument):
+        if await delete_prefix_message(ctx):
+            await send_direct_message(
+                ctx.author,
+                "Use: `!embed Título | Descrição | Cor`.\n"
+                "Cores disponíveis: Azul, Vermelho, Verde, Amarelo, Roxo, Preto ou Branco.",
+            )
+        return
+
+    LOGGER.error("Falha no comando com prefixo: %s", error, exc_info=error)
+    if ctx.guild is not None and await delete_prefix_message(ctx):
+        await send_direct_message(ctx.author, "Ocorreu um erro ao executar o comando.")
 
 
 @bot.tree.error
@@ -297,14 +377,6 @@ async def on_app_command_error(
             interaction, "Este comando só pode ser usado em um servidor."
         )
         return
-
-    if isinstance(error, app_commands.CheckFailure):
-        if interaction.command and interaction.command.name == "embed":
-            await send_ephemeral(
-                interaction,
-                "Somente o dono do servidor pode usar o comando `/embed`.",
-            )
-            return
 
     LOGGER.error(
         "Falha no comando /%s: %s",
