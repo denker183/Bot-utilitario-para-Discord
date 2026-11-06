@@ -48,6 +48,14 @@ async def send_ephemeral(
         await interaction.response.send_message(message, ephemeral=True)
 
 
+async def is_server_owner(interaction: discord.Interaction) -> bool:
+    """Allow a command only to the owner of its Discord server."""
+    return (
+        interaction.guild is not None
+        and interaction.user.id == interaction.guild.owner_id
+    )
+
+
 class ServerBot(discord.Client):
     def __init__(self) -> None:
         super().__init__(intents=discord.Intents.default())
@@ -257,7 +265,7 @@ async def regras(interaction: discord.Interaction) -> None:
 )
 @app_commands.choices(cor=COLORS)
 @app_commands.guild_only()
-@app_commands.checks.has_permissions(administrator=True)
+@app_commands.check(is_server_owner)
 async def embed_command(
     interaction: discord.Interaction,
     titulo: app_commands.Range[str, 1, 256],
@@ -270,16 +278,7 @@ async def embed_command(
         description=descricao,
         color=discord.Color(color_value),
     )
-
-    channel = interaction.channel
-    if channel is None or not hasattr(channel, "send"):
-        await send_ephemeral(
-            interaction, "Não consegui enviar a embed neste canal."
-        )
-        return
-
-    await channel.send(embed=message_embed)
-    await send_ephemeral(interaction, "Embed enviada com sucesso.")
+    await interaction.response.send_message(embed=message_embed, ephemeral=False)
 
 
 @bot.tree.error
@@ -298,6 +297,14 @@ async def on_app_command_error(
             interaction, "Este comando só pode ser usado em um servidor."
         )
         return
+
+    if isinstance(error, app_commands.CheckFailure):
+        if interaction.command and interaction.command.name == "embed":
+            await send_ephemeral(
+                interaction,
+                "Somente o dono do servidor pode usar o comando `/embed`.",
+            )
+            return
 
     LOGGER.error(
         "Falha no comando /%s: %s",
