@@ -295,7 +295,29 @@ async def embed_command(
     if imagem:
         message_embed.set_image(url=imagem)
 
-    await interaction.response.send_message(embed=message_embed, ephemeral=False)
+    await interaction.response.send_message("Enviando embed...", ephemeral=True)
+    channel = interaction.channel
+    if channel is None or not hasattr(channel, "send"):
+        await interaction.edit_original_response(
+            content="Não consegui enviar o embed neste canal."
+        )
+        return
+
+    try:
+        await channel.send(embed=message_embed)
+    except discord.Forbidden:
+        await interaction.edit_original_response(
+            content="Não tenho permissão para enviar mensagens e incorporar links neste canal."
+        )
+        return
+    except discord.HTTPException:
+        LOGGER.exception("Falha ao publicar o embed no canal.")
+        await interaction.edit_original_response(
+            content="Ocorreu um erro ao publicar o embed."
+        )
+        return
+
+    await interaction.delete_original_response()
 
 
 @bot.tree.error
