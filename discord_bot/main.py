@@ -177,7 +177,7 @@ async def calcular(
         color=color,
     )
     embed.set_footer(text=footer)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=embed, ephemeral=False)
 
 
 @bot.tree.command(name="servidor", description="Mostra informações deste servidor.")
